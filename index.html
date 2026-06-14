@@ -26,7 +26,6 @@
       .character-gif { width: 100%; height: auto; animation: bounce 0.6s infinite alternate ease-in-out; }
       @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-8px); } }
       
-      /* グラフコントロール用の装飾 */
       .graph-instruction { font-size: 0.85rem; color: #6c757d; }
     </style>
   </head>
@@ -38,7 +37,7 @@
         <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
           <h5>全体のタイム推移</h5>
           <div>
-            <span class="graph-instruction me-3">💡 グラフ上をスクロール/ピンチで拡大、ドラッグで移動できます</span>
+            <span class="graph-instruction me-3">💡 グラフ上でスクロール/ピンチして縦横に拡大・ドラッグ移動できます</span>
             <button id="resetZoomBtn" class="btn btn-sm btn-outline-secondary">ズームリセット</button>
           </div>
         </div>
@@ -100,18 +99,16 @@
       let globalData = null; 
       let myChart = null;
 
-      // タイム文字列(hh:mm:ss または mm:ss)を「秒」にパース
       function parseTimeToSeconds(timeStr) {
         if (!timeStr) return null;
         if (!isNaN(timeStr)) return Number(timeStr);
         const parts = timeStr.toString().split(':').map(Number);
-        if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]; // hh:mm:ss
-        if (parts.length === 2) return parts[0] * 60 + parts[1]; // mm:ss
+        if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]; 
+        if (parts.length === 2) return parts[0] * 60 + parts[1]; 
         if (parts.length === 1) return parts[0];
         return null;
       }
 
-      // 秒を「hh:mm:ss」の文字列にフォーマット
       function formatSecondsToTime(seconds) {
         if (seconds === null || isNaN(seconds) || seconds < 0) return '--:--:--';
         const h = Math.floor(seconds / 3600);
@@ -120,7 +117,6 @@
         return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
       }
 
-      // タイム差用のフォーマット（符号付き）
       function formatDiffTime(diffSeconds) {
         if (diffSeconds === null || isNaN(diffSeconds)) return '--';
         if (diffSeconds === 0) return '±00:00';
@@ -146,12 +142,11 @@
 
           globalData = data;
 
-          // --- 1. 折れ線グラフの描画 (ズーム機能 & Y軸hh:mm:ss化) ---
           const ctx = document.getElementById('timeChart').getContext('2d');
           const datasets = data.teams.map((team, index) => {
             return {
               label: team.name,
-              data: team.times.map(t => parseTimeToSeconds(t)), // 秒数データを入れる
+              data: team.times.map(t => parseTimeToSeconds(t)),
               borderColor: getTeamColor(index, data.teams.length),
               backgroundColor: 'transparent',
               tension: 0.1,
@@ -170,19 +165,18 @@
               responsive: true,
               plugins: { 
                 legend: { position: 'top', labels: { boxWidth: 12 } },
-                // 🔍 ズームプラグインの設定
+                // ★ここを xy に変更して縦軸方向のズーム・移動を許可しました
                 zoom: {
                   zoom: {
                     wheel: { enabled: true },
                     pinch: { enabled: true },
-                    mode: 'x', // 横（ラップ方向）のみズーム可能
+                    mode: 'xy', // 縦横両方のズームを許可
                   },
                   pan: {
                     enabled: true,
-                    mode: 'x', // 横方向にドラッグ移動可能
+                    mode: 'xy', // 縦横両方のドラッグ移動を許可
                   }
                 },
-                // ポップアップの表示形式を hh:mm:ss に変更
                 tooltip: {
                   callbacks: {
                     label: function(context) {
@@ -199,7 +193,6 @@
               scales: { 
                 y: { 
                   ticks: {
-                    // 目盛りの表示を数値(秒)から hh:mm:ss に変換
                     callback: function(value) {
                       return formatSecondsToTime(value);
                     }
@@ -210,12 +203,10 @@
             }
           });
 
-          // ズームリセットボタンの動作
           document.getElementById('resetZoomBtn').addEventListener('click', () => {
             if (myChart) myChart.resetZoom();
           });
 
-          // --- 2. プルダウンの構築（単一 & 比較用） ---
           const selector = document.getElementById('teamSelector');
           const compSel1 = document.getElementById('compareSelector1');
           const compSel2 = document.getElementById('compareSelector2');
@@ -230,16 +221,14 @@
             compSel1.appendChild(opt.cloneNode(true));
             
             const opt2 = opt.cloneNode(true);
-            if (index === 1 && data.teams.length > 1) opt2.selected = true; // チーム2は初期値で2番目を選択
+            if (index === 1 && data.teams.length > 1) opt2.selected = true;
             compSel2.appendChild(opt2);
           });
 
-          // イベントリスナーの登録
           selector.addEventListener('change', (e) => renderTimeline(data.teams[e.target.value]));
           compSel1.addEventListener('change', updateComparison);
           compSel2.addEventListener('change', updateComparison);
 
-          // 初期描画
           renderTimeline(data.teams[0]);
           updateComparison();
         })
@@ -248,7 +237,6 @@
           console.error(error);
         });
 
-      // --- 3. 縦型ガントチャート（タイムライン）の描画 ---
       function renderTimeline(team) {
         const container = document.getElementById('timelineContainer');
         container.innerHTML = '';
@@ -297,7 +285,6 @@
         });
       }
 
-      // --- 4. 2チームのタイム差比較表の更新 ---
       function updateComparison() {
         if (!globalData) return;
         const idx1 = document.getElementById('compareSelector1').value;
@@ -319,12 +306,11 @@
           let diffText = '--';
           let rowClass = '';
 
-          // 両方のチームに記録がある場合のみタイム差を計算
           if (s1 !== null && s2 !== null) {
-            const diff = s2 - s1; // チーム1を基準とした差分
+            const diff = s2 - s1; 
             diffText = formatDiffTime(diff);
             if (diff < 0) {
-              rowClass = 'table-success-light'; // チーム2の方が速い場合の色分けなどアレンジ可能
+              rowClass = 'table-success-light'; 
             }
           }
 
