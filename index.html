@@ -34,11 +34,17 @@
       <h2 class="mb-4 text-center">🏁 レース状況ダッシュボード</h2>
       
       <div class="mb-5 position-relative">
-        <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
-          <h5>全体のタイム推移</h5>
-          <div>
-            <span class="graph-instruction me-3">💡 グラフ上でスクロール/ピンチして縦横に拡大・ドラッグ移動できます</span>
-            <button id="resetZoomBtn" class="btn btn-sm btn-outline-secondary">ズームリセット</button>
+        <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2 flex-wrap">
+          <h5 class="mb-0">全体のタイム推移</h5>
+          <div class="mt-2 mt-md-0 d-flex align-items-center">
+            <span class="graph-instruction me-3 d-none d-md-inline">💡 スクロール/ピンチ・ドラッグ移動対応</span>
+            
+            <div class="btn-group me-2">
+              <button id="zoomInYBtn" class="btn btn-sm btn-outline-primary">縦軸 ＋</button>
+              <button id="zoomOutYBtn" class="btn btn-sm btn-outline-primary">縦軸 －</button>
+            </div>
+            
+            <button id="resetZoomBtn" class="btn btn-sm btn-outline-secondary">リセット</button>
           </div>
         </div>
         <canvas id="timeChart" height="140"></canvas>
@@ -165,16 +171,15 @@
               responsive: true,
               plugins: { 
                 legend: { position: 'top', labels: { boxWidth: 12 } },
-                // ★ここを xy に変更して縦軸方向のズーム・移動を許可しました
                 zoom: {
                   zoom: {
                     wheel: { enabled: true },
                     pinch: { enabled: true },
-                    mode: 'xy', // 縦横両方のズームを許可
+                    mode: 'xy', 
                   },
                   pan: {
                     enabled: true,
-                    mode: 'xy', // 縦横両方のドラッグ移動を許可
+                    mode: 'xy',
                   }
                 },
                 tooltip: {
@@ -201,6 +206,15 @@
                 } 
               }
             }
+          });
+
+          // ★追加したボタンの制御処理
+          document.getElementById('zoomInYBtn').addEventListener('click', () => {
+            if (myChart) myChart.zoom({ x: 1, y: 1.3 }); // 縦軸のみ1.3倍に拡大
+          });
+
+          document.getElementById('zoomOutYBtn').addEventListener('click', () => {
+            if (myChart) myChart.zoom({ x: 1, y: 0.77 }); // 縦軸のみ縮小（約1/1.3）
           });
 
           document.getElementById('resetZoomBtn').addEventListener('click', () => {
