@@ -3,75 +3,48 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>現在の進捗・タイム状況</title>
+    <title>大会ラップタイム・進捗ダッシュボード</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-      /* 縦型ガントチャート（タイムライン）のスタイル */
-      .timeline {
-        position: relative;
-        padding-left: 50px;
-        list-style: none;
+      .timeline { position: relative; padding-left: 50px; list-style: none; }
+      .timeline::before { content: ''; position: absolute; left: 20px; top: 0; bottom: 0; width: 4px; background: #dee2e6; }
+      .timeline-item { position: relative; margin-bottom: 40px; }
+      .timeline-marker { position: absolute; left: -36px; top: 5px; width: 16px; height: 16px; border-radius: 50px; background: #dee2e6; border: 2px solid #fff; box-shadow: 0 0 0 1px #dee2e6;}
+      
+      /* 到達済みのポイント */
+      .status-done .timeline-marker { background: #198754; box-shadow: 0 0 0 2px #198754;}
+      /* 最新（現在地）のポイント */
+      .status-current .timeline-marker { background: #0d6efd; box-shadow: 0 0 0 3px #0d6efd; animation: pulse 1.5s infinite; }
+      
+      @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.7); }
+        70% { box-shadow: 0 0 0 10px rgba(13, 110, 253, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0); }
       }
-      /* 縦の線 */
-      .timeline::before {
-        content: '';
-        position: absolute;
-        left: 20px;
-        top: 0;
-        bottom: 0;
-        width: 4px;
-        background: #dee2e6;
-      }
-      .timeline-item {
-        position: relative;
-        margin-bottom: 40px;
-      }
-      /* 各タイムラインの点 */
-      .timeline-marker {
-        position: absolute;
-        left: -36px;
-        top: 5px;
-        width: 16px;
-        height: 16px;
-        border-radius: 50px;
-        background: #6c757d;
-      }
-      .status-done .timeline-marker { background: #198754; }
-      .status-current .timeline-marker { background: #0d6efd; }
 
-      /* 先頭に動くGIFキャラを置くためのスタイル */
       .character-container {
-        position: absolute;
-        left: -90px; /* タイムラインの左側にキャラを配置 */
-        top: -15px;
-        width: 50px;
-        height: 50px;
-        text-align: center;
+        position: absolute; left: -90px; top: -15px; width: 50px; height: 50px; text-align: center;
       }
-      .character-gif {
-        width: 100%;
-        height: auto;
-        /* 上下に跳ねるアニメーション */
-        animation: bounce 0.6s infinite alternate ease-in-out;
-      }
-      @keyframes bounce {
-        from { transform: translateY(0); }
-        to { transform: translateY(-8px); }
-      }
+      .character-gif { width: 100%; height: auto; animation: bounce 0.6s infinite alternate ease-in-out; }
+      @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-8px); } }
     </style>
   </head>
   <body class="bg-light p-4">
-    <div class="container bg-white p-4 rounded shadow-sm" style="max-width: 800px;">
-      <h2 class="mb-4 text-center">📈 進捗ダッシュボード</h2>
+    <div class="container bg-white p-4 rounded shadow-sm" style="max-width: 900px;">
+      <h2 class="mb-4 text-center">🏁 レース状況ダッシュボード</h2>
       
       <div class="mb-5">
-        <h5>タイム推移グラフ</h5>
+        <h5 class="border-bottom pb-2">全体のタイム推移</h5>
         <canvas id="timeChart" height="150"></canvas>
       </div>
 
-      <div>
-        <h5>現在のステップ・タイムライン</h5>
+      <div class="p-3 bg-light rounded border">
+        <h5 class="mb-3">チーム別タイムライン</h5>
+        <select id="teamSelector" class="form-select mb-4 fw-bold">
+          <option value="" disabled selected>読み込み中...</option>
+        </select>
+
         <ul class="timeline mt-4" id="timelineContainer">
           <p id="loadingText" class="text-muted">データを読み込み中...</p>
         </ul>
@@ -79,99 +52,139 @@
     </div>
 
     <script>
-      // ご指定のGASウェブアプリURL（識別用のパラメータ action=get_progress を付与）
       const gasWebAppUrl = "https://script.google.com/macros/s/AKfycby1KWyNyHrp7gZV2_D3XP7Xlo0txsvySQ6iLSQO_tLVSH3YgkB_ncBuaY_1B6lA41Fu/exec?action=get_progress";
+      
+      let globalData = null; // 取得したデータを保持
 
-      // GAS APIからデータを取得
+      // スプレッドシートの時間を「分（数値）」に変換してグラフに描画するための補助関数
+      function parseTimeToMinutes(timeStr) {
+        if (!timeStr) return null;
+        if (!isNaN(timeStr)) return Number(timeStr);
+        const parts = timeStr.toString().split(':');
+        if (parts.length === 3) return Number(parts[0])*60 + Number(parts[1]) + Number(parts[2])/60; // HH:MM:SS
+        if (parts.length === 2) return Number(parts[0]) + Number(parts[1])/60; // MM:SS
+        return null;
+      }
+
+      // チームごとのグラフ色を生成
+      function getTeamColor(index, total) {
+        return `hsl(${(index * 360) / total}, 70%, 50%)`;
+      }
+
       fetch(gasWebAppUrl)
-        .then(response => {
-          if (!response.ok) {
-            throw new Error('ネットワークの応答が良くありません。');
-          }
-          return response.json();
-        })
+        .then(response => response.json())
         .then(data => {
-          // 読み込み中テキストを消去
-          const loadingText = document.getElementById('loadingText');
-          if (loadingText) loadingText.remove();
-
-          if (!data || data.error || data.length === 0) {
-            const container = document.getElementById('timelineContainer');
-            container.innerHTML = `<p class="text-danger">データが空か、シート「テスト用」が見つかりません。</p>`;
+          document.getElementById('loadingText')?.remove();
+          if (!data || !data.teams || data.teams.length === 0) {
+            document.getElementById('timelineContainer').innerHTML = `<p class="text-danger">データが見つかりません。</p>`;
             return;
           }
 
-          // --- 1. 折れ線のグラフ描画 ---
+          globalData = data;
+
+          // --- 1. 折れ線グラフの描画 ---
           const ctx = document.getElementById('timeChart').getContext('2d');
+          const datasets = data.teams.map((team, index) => {
+            return {
+              label: team.name,
+              data: team.times.map(t => parseTimeToMinutes(t)), // グラフ用に数値化
+              borderColor: getTeamColor(index, data.teams.length),
+              backgroundColor: 'transparent',
+              tension: 0.1,
+              spanGaps: true,
+              borderWidth: 2
+            };
+          });
+
           new Chart(ctx, {
             type: 'line',
             data: {
-              labels: data.map(item => item.taskName || '未設定'),
-              datasets: [{
-                label: 'タイム',
-                data: data.map(item => item.time !== "" ? Number(item.time) : null), // 数値化（空文字はスキップ）
-                borderColor: '#0d6efd',
-                backgroundColor: 'rgba(13, 110, 253, 0.1)',
-                tension: 0.2,
-                fill: true,
-                spanGaps: true // タイムが空の場所があっても線を繋ぐ
-              }]
+              labels: data.laps, // X軸はラップ名
+              datasets: datasets
             },
             options: {
               responsive: true,
-              plugins: {
-                legend: { position: 'top' }
-              }
+              plugins: { legend: { position: 'top', labels: { boxWidth: 12 } } },
+              scales: { y: { title: { display: true, text: '経過時間目安 (分)' } } }
             }
           });
 
-          // --- 2. 縦型ガントチャートの描画 ---
-          const container = document.getElementById('timelineContainer');
-          let characterPlaced = false; // キャラを1度だけ置くためのフラグ
-
-          data.forEach((item) => {
-            const li = document.createElement('li');
-            li.className = 'timeline-item';
-            
-            // ステータスに応じたクラス分け
-            if (item.status === '完了') {
-              li.classList.add('status-done');
-            } else if (item.status === '進行中') {
-              li.classList.add('status-current');
-            }
-
-            // 【キャラクター配置の判定】
-            // 「進行中」のタスク、または「完了」ではない最初のタスクにキャラを1度だけ配置
-            let charHtml = '';
-            if ((item.status === '進行中' || !characterPlaced) && item.status !== '完了') {
-              charHtml = `
-                <div class="character-container">
-                  <img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3BwZ3g0Z3RndmpxbWN0bXN6dW9pZHJ4b3Y4bTh3bXF4bnA0eSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/3orif68v7GgIEzAnf2/giphy.gif" class="character-gif" alt="chara">
-                </div>`;
-              characterPlaced = true;
-            }
-
-            // 表示する情報の組み立て
-            const displayTime = item.time !== "" ? item.time : "未記録";
-            const displayStatus = item.status !== "" ? item.status : "未着手";
-
-            li.innerHTML = `
-              ${charHtml}
-              <div class="timeline-marker"></div>
-              <div class="ms-3">
-                <h6 class="mb-1">${item.taskName || '名称未設定タスク'}</h6>
-                <p class="text-muted small mb-0">
-                  タイム: <strong>${displayTime}</strong> | ステータス: <span class="badge ${item.status === '完了' ? 'bg-success' : item.status === '進行中' ? 'bg-primary' : 'bg-secondary'}">${displayStatus}</span>
-                </p>
-              </div>
-            `;
-            container.appendChild(li);
+          // --- 2. プルダウンの構築 ---
+          const selector = document.getElementById('teamSelector');
+          selector.innerHTML = '';
+          data.teams.forEach((team, index) => {
+            const option = document.createElement('option');
+            option.value = index;
+            option.text = team.name;
+            selector.appendChild(option);
           });
+
+          // プルダウン変更時にタイムラインを再描画
+          selector.addEventListener('change', (e) => {
+            renderTimeline(data.teams[e.target.value]);
+          });
+
+          // 初期表示として最初のチームのタイムラインを描画
+          renderTimeline(data.teams[0]);
         })
         .catch(error => {
-          document.getElementById('loadingText').innerText = "データの取得に失敗しました。GASの新しいデプロイや権限を確認してください。";
-          console.error("Error fetching data:", error);
+          document.getElementById('timelineContainer').innerHTML = `<p class="text-danger">データの取得に失敗しました。</p>`;
+          console.error(error);
         });
+
+      // --- 3. 縦型ガントチャート（タイムライン）の描画 ---
+      function renderTimeline(team) {
+        const container = document.getElementById('timelineContainer');
+        container.innerHTML = '';
+
+        // このチームの「最新の記録があるインデックス」を探す
+        let latestRecordIndex = -1;
+        team.times.forEach((time, idx) => {
+          if (time !== "") latestRecordIndex = idx;
+        });
+
+        globalData.laps.forEach((lapName, index) => {
+          const li = document.createElement('li');
+          li.className = 'timeline-item';
+          const recordedTime = team.times[index];
+
+          // 状態の判定
+          let statusText = "未通過";
+          let badgeClass = "bg-secondary";
+          
+          if (recordedTime !== "") {
+            statusText = "通過済";
+            badgeClass = "bg-success";
+            li.classList.add('status-done');
+          }
+
+          // 「現在地」の判定（一番最後に記録された場所）にキャラを置く
+          let charHtml = '';
+          if (index === latestRecordIndex) {
+            li.classList.add('status-current');
+            statusText = "現在地";
+            badgeClass = "bg-primary";
+            charHtml = `
+              <div class="character-container">
+                <img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3BwZ3g0Z3RndmpxbWN0bXN6dW9pZHJ4b3Y4bTh3bXF4bnA0eSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/3orif68v7GgIEzAnf2/giphy.gif" class="character-gif" alt="chara">
+              </div>`;
+          }
+
+          const displayTime = recordedTime !== "" ? recordedTime : "--:--";
+
+          li.innerHTML = `
+            ${charHtml}
+            <div class="timeline-marker"></div>
+            <div class="ms-3">
+              <h6 class="mb-1">${lapName}</h6>
+              <p class="text-muted small mb-0">
+                タイム: <strong>${displayTime}</strong> <span class="badge ${badgeClass} ms-2">${statusText}</span>
+              </p>
+            </div>
+          `;
+          container.appendChild(li);
+        });
+      }
     </script>
   </body>
 </html>
