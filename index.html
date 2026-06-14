@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>現在の進捗・タイム状況</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      /* 縦型ガントチャート（タイムライン）のスタイル */
+      .timeline {
+        position: relative;
+        padding-left: 50px;
+        list-style: none;
+      }
+      /* 縦の線 */
+      .timeline::before {
+        content: '';
+        position: absolute;
+        left: 20px;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        background: #dee2e6;
+      }
+      .timeline-item {
+        position: relative;
+        margin-bottom: 40px;
+      }
+      /* 各タイムラインの点 */
+      .timeline-marker {
+        position: absolute;
+        left: -36px;
+        top: 5px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50px;
+        background: #6c757d;
+      }
+      .status-done .timeline-marker { background: #198754; }
+      .status-current .timeline-marker { background: #0d6efd; }
+
+      /* 先頭に動くGIFキャラを置くためのスタイル */
+      .character-container {
+        position: absolute;
+        left: -90px; /* タイムラインの左側にキャラを配置 */
+        top: -15px;
+        width: 50px;
+        height: 50px;
+        text-align: center;
+      }
+      .character-gif {
+        width: 100%;
+        height: auto;
+        /* 上下に跳ねるアニメーション */
+        animation: bounce 0.6s infinite alternate ease-in-out;
+      }
+      @keyframes bounce {
+        from { transform: translateY(0); }
+        to { transform: translateY(-8px); }
+      }
+    </style>
+  </head>
+  <body class="bg-light p-4">
+    <div class="container bg-white p-4 rounded shadow-sm" style="max-width: 800px;">
+      <h2 class="mb-4 text-center">📈 進捗ダッシュボード</h2>
+      
+      <div class="mb-5">
+        <h5>タイム推移グラフ</h5>
+        <canvas id="timeChart" height="150"></canvas>
+      </div>
+
+      <div>
+        <h5>現在のステップ・タイムライン</h5>
+        <ul class="timeline mt-4" id="timelineContainer">
+          <p id="loadingText" class="text-muted">データを読み込み中...</p>
+        </ul>
+      </div>
+    </div>
+
+    <script>
+      // ご指定のGASウェブアプリURL（識別用のパラメータ action=get_progress を付与）
+      const gasWebAppUrl = "https://script.google.com/macros/s/AKfycby1KWyNyHrp7gZV2_D3XP7Xlo0txsvySQ6iLSQO_tLVSH3YgkB_ncBuaY_1B6lA41Fu/exec?action=get_progress";
+
+      // GAS APIからデータを取得
+      fetch(gasWebAppUrl)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('ネットワークの応答が良くありません。');
+          }
+          return response.json();
+        })
+        .then(data => {
+          // 読み込み中テキストを消去
+          const loadingText = document.getElementById('loadingText');
+          if (loadingText) loadingText.remove();
+
+          if (!data || data.error || data.length === 0) {
+            const container = document.getElementById('timelineContainer');
+            container.innerHTML = `<p class="text-danger">データが空か、シート「テスト用」が見つかりません。</p>`;
+            return;
+          }
+
+          // --- 1. 折れ線のグラフ描画 ---
+          const ctx = document.getElementById('timeChart').getContext('2d');
+          new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: data.map(item => item.taskName || '未設定'),
+              datasets: [{
+                label: 'タイム',
+                data: data.map(item => item.time !== "" ? Number(item.time) : null), // 数値化（空文字はスキップ）
+                borderColor: '#0d6efd',
+                backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                tension: 0.2,
+                fill: true,
+                spanGaps: true // タイムが空の場所があっても線を繋ぐ
+              }]
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                legend: { position: 'top' }
+              }
+            }
+          });
+
+          // --- 2. 縦型ガントチャートの描画 ---
+          const container = document.getElementById('timelineContainer');
+          let characterPlaced = false; // キャラを1度だけ置くためのフラグ
+
+          data.forEach((item) => {
+            const li = document.createElement('li');
+            li.className = 'timeline-item';
+            
+            // ステータスに応じたクラス分け
+            if (item.status === '完了') {
+              li.classList.add('status-done');
+            } else if (item.status === '進行中') {
+              li.classList.add('status-current');
+            }
+
+            // 【キャラクター配置の判定】
+            // 「進行中」のタスク、または「完了」ではない最初のタスクにキャラを1度だけ配置
+            let charHtml = '';
+            if ((item.status === '進行中' || !characterPlaced) && item.status !== '完了') {
+              charHtml = `
+                <div class="character-container">
+                  <img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3BwZ3g0Z3RndmpxbWN0bXN6dW9pZHJ4b3Y4bTh3bXF4bnA0eSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/3orif68v7GgIEzAnf2/giphy.gif" class="character-gif" alt="chara">
+                </div>`;
+              characterPlaced = true;
+            }
+
+            // 表示する情報の組み立て
+            const displayTime = item.time !== "" ? item.time : "未記録";
+            const displayStatus = item.status !== "" ? item.status : "未着手";
+
+            li.innerHTML = `
+              ${charHtml}
+              <div class="timeline-marker"></div>
+              <div class="ms-3">
+                <h6 class="mb-1">${item.taskName || '名称未設定タスク'}</h6>
+                <p class="text-muted small mb-0">
+                  タイム: <strong>${displayTime}</strong> | ステータス: <span class="badge ${item.status === '完了' ? 'bg-success' : item.status === '進行中' ? 'bg-primary' : 'bg-secondary'}">${displayStatus}</span>
+                </p>
+              </div>
+            `;
+            container.appendChild(li);
+          });
+        })
+        .catch(error => {
+          document.getElementById('loadingText').innerText = "データの取得に失敗しました。GASの新しいデプロイや権限を確認してください。";
+          console.error("Error fetching data:", error);
+        });
+    </script>
+  </body>
+</html>
