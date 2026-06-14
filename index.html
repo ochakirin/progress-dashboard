@@ -35,15 +35,20 @@
       
       <div class="mb-5 position-relative">
         <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2 flex-wrap">
-          <h5 class="mb-0">全体のタイム推移</h5>
-          <div class="mt-2 mt-md-0 d-flex align-items-center">
-            <span class="graph-instruction me-3 d-none d-md-inline">💡 スクロール/ピンチ・ドラッグ移動対応</span>
-            
-            <div class="btn-group me-2">
-              <button id="zoomInYBtn" class="btn btn-sm btn-outline-primary">縦軸 ＋</button>
-              <button id="zoomOutYBtn" class="btn btn-sm btn-outline-primary">縦軸 －</button>
+          <h5 class="mb-0">レース全体の推移</h5>
+          
+          <div class="mt-2 mt-md-0 d-flex align-items-center flex-wrap gap-2">
+            <div class="btn-group me-2" role="group">
+              <input type="radio" class="btn-check" name="chartMode" id="modeTime" value="time" autocomplete="off" checked>
+              <label class="btn btn-sm btn-outline-primary fw-bold" for="modeTime">⏱ タイム推移</label>
+              <input type="radio" class="btn-check" name="chartMode" id="modeRank" value="rank" autocomplete="off">
+              <label class="btn btn-sm btn-outline-primary fw-bold" for="modeRank">🏆 順位変動</label>
             </div>
-            
+
+            <div class="btn-group me-2">
+              <button id="zoomInYBtn" class="btn btn-sm btn-outline-secondary">縦軸 ＋</button>
+              <button id="zoomOutYBtn" class="btn btn-sm btn-outline-secondary">縦軸 －</button>
+            </div>
             <button id="resetZoomBtn" class="btn btn-sm btn-outline-secondary">リセット</button>
           </div>
         </div>
@@ -104,6 +109,7 @@
       
       let globalData = null; 
       let myChart = null;
+      let currentChartMode = 'time'; // 現在のグラフモード（time または rank）
 
       function parseTimeToSeconds(timeStr) {
         if (!timeStr) return null;
@@ -148,6 +154,37 @@
 
           globalData = data;
 
+          // ★ 各ラップごとの順位を計算してチームデータに格納
+          const numTeams = globalData.teams.length;
+          const numLaps = globalData.laps.length;
+          
+          globalData.teams.forEach(team => {
+            team.ranks = Array(numLaps).fill(null);
+          });
+
+          for (let lapIdx = 0; lapIdx < numLaps; lapIdx++) {
+            let lapData = [];
+            for (let teamIdx = 0; teamIdx < numTeams; teamIdx++) {
+              let seconds = parseTimeToSeconds(globalData.teams[teamIdx].times[lapIdx]);
+              if (seconds !== null) {
+                lapData.push({ teamIdx: teamIdx, seconds: seconds });
+              }
+            }
+            
+            // タイム順（昇順）に並び替え
+            lapData.sort((a, b) => a.seconds - b.seconds);
+            
+            // 順位付け（同タイムの場合は同順位）
+            let currentRank = 1;
+            for (let i = 0; i < lapData.length; i++) {
+              if (i > 0 && lapData[i].seconds > lapData[i - 1].seconds) {
+                currentRank = i + 1;
+              }
+              globalData.teams[lapData[i].teamIdx].ranks[lapIdx] = currentRank;
+            }
+          }
+
+          // --- グラフの初期描画（タイム推移） ---
           const ctx = document.getElementById('timeChart').getContext('2d');
           const datasets = data.teams.map((team, index) => {
             return {
@@ -163,32 +200,19 @@
 
           myChart = new Chart(ctx, {
             type: 'line',
-            data: {
-              labels: data.laps,
-              datasets: datasets
-            },
+            data: { labels: data.laps, datasets: datasets },
             options: {
               responsive: true,
               plugins: { 
                 legend: { position: 'top', labels: { boxWidth: 12 } },
-                zoom: {
-                  zoom: {
-                    wheel: { enabled: true },
-                    pinch: { enabled: true },
-                    mode: 'xy', 
-                  },
-                  pan: {
-                    enabled: true,
-                    mode: 'xy',
-                  }
-                },
+                zoom: { zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }, pan: { enabled: true, mode: 'xy' } },
                 tooltip: {
                   callbacks: {
                     label: function(context) {
                       let label = context.dataset.label || '';
                       if (label) label += ': ';
                       if (context.parsed.y !== null) {
-                        label += formatSecondsToTime(context.parsed.y);
+                        label += (currentChartMode === 'time') ? formatSecondsToTime(context.parsed.y) : context.parsed.y + '位';
                       }
                       return label;
                     }
@@ -198,25 +222,52 @@
               scales: { 
                 y: { 
                   ticks: {
-                    callback: function(value) {
-                      return formatSecondsToTime(value);
-                    }
+                    callback: function(value) { return formatSecondsToTime(value); }
                   },
-                  title: { display: true, text: '経過時間 (hh:mm:ss)' } 
+                  title: { display: true, text: '経過時間 (hh:mm:ss)' },
+                  reverse: false // タイムの場合は通常
                 } 
               }
             }
           });
 
-          // ★追加したボタンの制御処理
+          // ★ グラフのモード切り替えイベント
+          document.querySelectorAll('input[name="chartMode"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+              currentChartMode = e.target.value;
+              
+              if (currentChartMode === 'time') {
+                // タイム推移モードに設定
+                myChart.data.datasets.forEach((dataset, i) => {
+                  dataset.data = globalData.teams[i].times.map(t => parseTimeToSeconds(t));
+                });
+                myChart.options.scales.y.reverse = false;
+                myChart.options.scales.y.title.text = '経過時間 (hh:mm:ss)';
+                myChart.options.scales.y.ticks.callback = function(value) { return formatSecondsToTime(value); };
+              } else {
+                // 順位変動モードに設定
+                myChart.data.datasets.forEach((dataset, i) => {
+                  dataset.data = globalData.teams[i].ranks;
+                });
+                myChart.options.scales.y.reverse = true; // 1位を上に
+                myChart.options.scales.y.title.text = '順位';
+                myChart.options.scales.y.ticks.callback = function(value) {
+                  // 小数点の目盛りは表示しない
+                  if (Math.floor(value) === value) return value + '位';
+                };
+              }
+              myChart.update();
+              myChart.resetZoom();
+            });
+          });
+
+          // ズームボタンの制御処理
           document.getElementById('zoomInYBtn').addEventListener('click', () => {
-            if (myChart) myChart.zoom({ x: 1, y: 1.3 }); // 縦軸のみ1.3倍に拡大
+            if (myChart) myChart.zoom({ x: 1, y: 1.3 });
           });
-
           document.getElementById('zoomOutYBtn').addEventListener('click', () => {
-            if (myChart) myChart.zoom({ x: 1, y: 0.77 }); // 縦軸のみ縮小（約1/1.3）
+            if (myChart) myChart.zoom({ x: 1, y: 0.77 });
           });
-
           document.getElementById('resetZoomBtn').addEventListener('click', () => {
             if (myChart) myChart.resetZoom();
           });
